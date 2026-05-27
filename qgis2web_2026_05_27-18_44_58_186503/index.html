@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
+        <style>
+        html, body, #map { width:100%; height:100%; padding:0; margin:0; }
+        .layer-control { background:white; border-radius:8px; padding:10px 14px; box-shadow:0 2px 10px rgba(0,0,0,0.15); font-family:Arial,sans-serif; font-size:13px; min-width:190px; max-width:220px; }
+        .layer-control-header { font-weight:bold; font-size:13px; color:#333; cursor:pointer; user-select:none; padding:2px 0 6px 0; border-bottom:1px solid #eee; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; }
+        .layer-item { display:flex; align-items:center; margin:5px 0; cursor:pointer; color:#444; }
+        .layer-item input { margin-right:7px; cursor:pointer; }
+        .layer-section-title { font-size:10px; text-transform:uppercase; color:#999; letter-spacing:.5px; margin:8px 0 4px 0; }
+        .info-panel { background:white; border-radius:8px; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.15); font-family:Arial,sans-serif; font-size:12px; max-width:240px; line-height:1.5; color:#444; }
+        .info-panel h3 { margin:0 0 6px 0; font-size:14px; color:#222; }
+        .info-panel p { margin:0 0 6px 0; }
+        .zoom-indicator { background:rgba(255,255,255,0.9); border-radius:6px; padding:4px 10px; font-family:Arial,sans-serif; font-size:11px; color:#666; box-shadow:0 1px 5px rgba(0,0,0,0.1); }
+        .legend-panel { background:white; border-radius:8px; padding:10px 14px; box-shadow:0 2px 10px rgba(0,0,0,0.15); font-family:Arial,sans-serif; font-size:11px; min-width:150px; }
+        .legend-panel h4 { margin:0 0 8px 0; font-size:12px; color:#333; }
+        .legend-row { display:flex; align-items:center; margin:3px 0; }
+        .legend-color { width:16px; height:12px; border-radius:2px; margin-right:7px; flex-shrink:0; }
+        </style>
+        <title></title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/multi-style-layer.js"></script>
+        <script src="js/leaflet-heat.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="js/proj4.js"></script>
+        <script src="js/proj4leaflet.js"></script>
+        <script src="data/yekaterinburg_municipality_1.js"></script>
+        <script src="data/microd_joined_crs_2.js"></script>
+        <script src="data/district_joined_crs_3.js"></script>
+        <script src="data/shk_itog_4.js"></script>
+        <script src="data/shk_itog1_5.js"></script>
+        <script src="data/simplified_kadastr_6.js"></script>
+        <script>
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:20, minZoom:1
+        }).fitBounds([[56.76874321448972,60.45628682962953],[56.88613391125558,60.76328728775134]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'meters',
+            secondaryLengthUnit: 'kilometers',
+            primaryAreaUnit: 'sqmeters',
+            secondaryAreaUnit: 'hectares'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_Positronnolabelsretina_0');
+        map.getPane('pane_Positronnolabelsretina_0').style.zIndex = 400;
+        var layer_Positronnolabelsretina_0 = L.tileLayer('https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png', {
+            pane: 'pane_Positronnolabelsretina_0',
+            opacity: 1.0,
+            attribution: '<a href="https://cartodb.com/basemaps/">Map tiles by CartoDB, under CC BY 3.0. Data by OpenStreetMap, under ODbL.</a>',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 20
+        });
+        layer_Positronnolabelsretina_0;
+        map.addLayer(layer_Positronnolabelsretina_0);
+        function pop_yekaterinburg_municipality_1(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['fid'] !== null ? autolinker.link(String(feature.properties['fid']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['addr:country'] !== null ? autolinker.link(String(feature.properties['addr:country']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['addr:region'] !== null ? autolinker.link(String(feature.properties['addr:region']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['admin_level'] !== null ? autolinker.link(String(feature.properties['admin_level']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['boundary'] !== null ? autolinker.link(String(feature.properties['boundary']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name'] !== null ? autolinker.link(String(feature.properties['name']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:ar'] !== null ? autolinker.link(String(feature.properties['name:ar']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:ca'] !== null ? autolinker.link(String(feature.properties['name:ca']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:en'] !== null ? autolinker.link(String(feature.properties['name:en']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:ja'] !== null ? autolinker.link(String(feature.properties['name:ja']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:sk'] !== null ? autolinker.link(String(feature.properties['name:sk']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:uk'] !== null ? autolinker.link(String(feature.properties['name:uk']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:zh'] !== null ? autolinker.link(String(feature.properties['name:zh']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:zh-Hans'] !== null ? autolinker.link(String(feature.properties['name:zh-Hans']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:zh-Hant'] !== null ? autolinker.link(String(feature.properties['name:zh-Hant']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['official_status'] !== null ? autolinker.link(String(feature.properties['official_status']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['oktmo:user'] !== null ? autolinker.link(String(feature.properties['oktmo:user']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['type'] !== null ? autolinker.link(String(feature.properties['type']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['wikidata'] !== null ? autolinker.link(String(feature.properties['wikidata']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['wikimedia_commons'] !== null ? autolinker.link(String(feature.properties['wikimedia_commons']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['wikipedia'] !== null ? autolinker.link(String(feature.properties['wikipedia']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_yekaterinburg_municipality_1_0() {
+            return {
+                pane: 'pane_yekaterinburg_municipality_1',
+                opacity: 1,
+                color: 'rgba(93,64,50,0.34901960784313724)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 5.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        function style_yekaterinburg_municipality_1_1() {
+            return {
+                pane: 'pane_yekaterinburg_municipality_1',
+                opacity: 1,
+                color: 'rgba(93,64,50,0.34901960784313724)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 1,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_yekaterinburg_municipality_1');
+        map.getPane('pane_yekaterinburg_municipality_1').style.zIndex = 401;
+        map.getPane('pane_yekaterinburg_municipality_1').style['mix-blend-mode'] = 'normal';
+        var layer_yekaterinburg_municipality_1 = new L.geoJson.multiStyle(json_yekaterinburg_municipality_1, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_yekaterinburg_municipality_1',
+            layerName: 'layer_yekaterinburg_municipality_1',
+            pane: 'pane_yekaterinburg_municipality_1',
+            onEachFeature: pop_yekaterinburg_municipality_1,
+            styles: [style_yekaterinburg_municipality_1_0,style_yekaterinburg_municipality_1_1,]
+        });
+        bounds_group.addLayer(layer_yekaterinburg_municipality_1);
+        map.addLayer(layer_yekaterinburg_municipality_1);
+        function pop_microd_joined_crs_2(feature, layer) {
+            var p = feature.properties;
+            var idx = parseFloat(p['provision_mean'] || p['provision_index'] || 0);
+            var nm  = p['name'] || p['NAME'] || p['fid'] || 'Микрорайон';
+            var cl  = idx <= 9.3 ? '#e28888' : idx <= 31.3 ? '#f4b794' : idx <= 63.2 ? '#f4d3a8' : idx <= 112.6 ? '#dfe5b9' : '#c4dc8c';
+            var norm=196, pct=Math.min(idx/norm*100,100), W=150, bw=Math.round(pct/100*W);
+            var h = '<div style="font-family:Arial,sans-serif;font-size:13px;width:240px;">'
+              + '<div style="border-bottom:3px solid '+cl+';padding-bottom:6px;margin-bottom:10px;">'
+              +   '<div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px">Микрорайон</div>'
+              +   '<div style="font-size:15px;font-weight:bold;color:#222;margin-top:2px">'+nm+'</div>'
+              +   '<div style="margin-top:3px;font-size:12px">Индекс: <span style="font-weight:bold;font-size:16px;color:#333">'+idx.toFixed(1)+'</span><span style="color:#aaa;font-size:10px"> мест/1000 чел.</span></div>'
+              + '</div>'
+              + '<div style="margin-bottom:10px">'
+              +   '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:#555">Обеспеченность</span><span style="font-weight:bold;color:#333">'+pct.toFixed(0)+'% от нормы</span></div>'
+              +   '<div style="position:relative;height:14px;background:#eee;border-radius:3px;width:'+W+'px">'
+              +     '<div style="height:14px;width:'+bw+'px;background:'+cl+';border-radius:3px"></div>'
+              +     '<div style="position:absolute;right:0;top:-3px;width:2px;height:20px;background:#666;opacity:.4"></div>'
+              +   '</div>'
+              +   '<div style="font-size:10px;color:#bbb;margin-top:1px">норма: '+norm+' мест/1000 чел.</div>'
+              + '</div></div>';
+            layer.bindPopup(h, {maxWidth:280});
+        }
+
+        function style_microd_joined_crs_2_0(feature) {
+            var v = parseFloat(feature.properties['provision_mean'] || feature.properties['provision_index'] || 0);
+            var fillColor, strokeColor;
+            if      (v <= 9.330769)   { fillColor='rgba(226,136,136,1.0)'; strokeColor='rgba(145,87,87,1.0)'; }
+            else if (v <= 31.347368)  { fillColor='rgba(244,183,148,1.0)'; strokeColor='rgba(150,113,91,1.0)'; }
+            else if (v <= 63.175000)  { fillColor='rgba(244,211,168,1.0)'; strokeColor='rgba(149,129,103,1.0)'; }
+            else if (v <= 112.552941) { fillColor='rgba(223,229,185,1.0)'; strokeColor='rgba(149,153,124,1.0)'; }
+            else                      { fillColor='rgba(196,220,140,1.0)'; strokeColor='rgba(130,146,93,1.0)'; }
+            return { pane:'pane_microd_joined_crs_2', opacity:1, color:strokeColor, dashArray:'', lineCap:'butt', lineJoin:'miter', weight:1.0, fill:true, fillOpacity:1, fillColor:fillColor, interactive:true };
+        }
+        map.createPane('pane_microd_joined_crs_2');
+        map.getPane('pane_microd_joined_crs_2').style.zIndex = 402;
+        map.getPane('pane_microd_joined_crs_2').style['mix-blend-mode'] = 'normal';
+        var layer_microd_joined_crs_2 = new L.geoJson(json_microd_joined_crs_2, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_microd_joined_crs_2',
+            layerName: 'layer_microd_joined_crs_2',
+            pane: 'pane_microd_joined_crs_2',
+            onEachFeature: pop_microd_joined_crs_2,
+            style: style_microd_joined_crs_2_0,
+        });
+        bounds_group.addLayer(layer_microd_joined_crs_2);
+        map.addLayer(layer_microd_joined_crs_2);
+        function pop_district_joined_crs_3(feature, layer) {
+            var p = feature.properties;
+            var idx = parseFloat(p['provision_mean'] || p['provision_index'] || 0);
+            var nm  = p['name'] || p['NAME'] || p['fid'] || 'Район';
+            var cl  = idx <= 9.3 ? '#e28888' : idx <= 31.3 ? '#f4b794' : idx <= 63.2 ? '#f4d3a8' : idx <= 112.6 ? '#dfe5b9' : '#c4dc8c';
+            var norm=196, pct=Math.min(idx/norm*100,100), W=160, bw=Math.round(pct/100*W);
+            var h = '<div style="font-family:Arial,sans-serif;font-size:13px;width:255px;">'
+              + '<div style="border-bottom:3px solid '+cl+';padding-bottom:7px;margin-bottom:10px;">'
+              +   '<div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px">Район города</div>'
+              +   '<div style="font-size:17px;font-weight:bold;color:#222;margin-top:2px">'+nm+'</div>'
+              +   '<div style="margin-top:3px;font-size:12px">Индекс: <span style="font-weight:bold;font-size:17px;color:#333">'+idx.toFixed(1)+'</span><span style="color:#aaa;font-size:10px"> мест/1000 чел.</span></div>'
+              + '</div>'
+              + '<div style="margin-bottom:10px">'
+              +   '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:#555">Обеспеченность</span><span style="font-weight:bold;color:#333">'+pct.toFixed(0)+'% от нормы</span></div>'
+              +   '<div style="position:relative;height:16px;background:#eee;border-radius:4px;width:'+W+'px">'
+              +     '<div style="height:16px;width:'+bw+'px;background:'+cl+';border-radius:4px"></div>'
+              +     '<div style="position:absolute;right:0;top:-3px;width:2px;height:22px;background:#666;opacity:.4"></div>'
+              +   '</div>'
+              +   '<div style="font-size:10px;color:#bbb;margin-top:1px">норма: '+norm+' мест/1000 чел.</div>'
+              + '</div></div>';
+            layer.bindPopup(h, {maxWidth:300});
+        }
+
+        function style_district_joined_crs_3_0(feature) {
+            var v = parseFloat(feature.properties['provision_mean'] || feature.properties['provision_index'] || 0);
+            var fillColor, strokeColor;
+            if      (v <= 9.330769)   { fillColor='rgba(226,136,136,1.0)'; strokeColor='rgba(145,87,87,1.0)'; }
+            else if (v <= 31.347368)  { fillColor='rgba(244,183,148,1.0)'; strokeColor='rgba(150,113,91,1.0)'; }
+            else if (v <= 63.175000)  { fillColor='rgba(244,211,168,1.0)'; strokeColor='rgba(149,129,103,1.0)'; }
+            else if (v <= 112.552941) { fillColor='rgba(223,229,185,1.0)'; strokeColor='rgba(149,153,124,1.0)'; }
+            else                      { fillColor='rgba(196,220,140,1.0)'; strokeColor='rgba(130,146,93,1.0)'; }
+            return { pane:'pane_district_joined_crs_3', opacity:1, color:strokeColor, dashArray:'', lineCap:'butt', lineJoin:'miter', weight:1.5, fill:true, fillOpacity:1, fillColor:fillColor, interactive:true };
+        }
+        
+        map.createPane('pane_district_joined_crs_3');
+        map.getPane('pane_district_joined_crs_3').style.zIndex = 403;
+        map.getPane('pane_district_joined_crs_3').style['mix-blend-mode'] = 'normal';
+        var layer_district_joined_crs_3 = new L.geoJson(json_district_joined_crs_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_district_joined_crs_3',
+            layerName: 'layer_district_joined_crs_3',
+            pane: 'pane_district_joined_crs_3',
+            onEachFeature: pop_district_joined_crs_3,
+            style: style_district_joined_crs_3_0,
+        });
+        bounds_group.addLayer(layer_district_joined_crs_3);
+        map.addLayer(layer_district_joined_crs_3);
+        // ========== HEATMAP UTILITY ==========
+        function weightedGeoJson2Heat(geojson, weightField) {
+            var points = [], vals = [];
+            if (!geojson || !geojson.features) return points;
+            geojson.features.forEach(function(f) {
+                var v = parseFloat(f.properties[weightField]);
+                if (!isNaN(v) && v > 0) vals.push(v);
+            });
+            if (!vals.length) return points;
+            var maxVal = Math.max.apply(null, vals);
+            geojson.features.forEach(function(f) {
+                if (!f.geometry || !f.geometry.coordinates) return;
+                var v = parseFloat(f.properties[weightField]);
+                if (!isNaN(v) && v > 0)
+                    points.push([f.geometry.coordinates[1], f.geometry.coordinates[0], v / maxVal]);
+            });
+            return points;
+        }
+
+        // ========== HEATMAP SCHOOLS ==========
+        var layer_shk_itog_4 = new L.heatLayer(
+            weightedGeoJson2Heat(json_shk_itog_4, 'people_sum_sum'), {
+            radius: 30, blur: 10, max: 1.0, minOpacity: 0.2,
+            gradient: {0.0:'rgba(255,255,255,0)', 0.2:'rgba(140,205,247,0.55)', 0.4:'rgba(107,181,226,0.75)', 0.6:'rgba(53,139,186,0.9)', 0.85:'rgba(14,101,146,0.97)', 1.0:'rgba(0,85,124,1.0)'}
+        });
+
+        // ========== HEATMAP KINDERGARTENS ==========
+        var layer_shk_itog1_5 = new L.heatLayer(
+            weightedGeoJson2Heat(json_shk_itog1_5, 'people_sum_sum'), {
+            radius: 30, blur: 10, max: 1.0, minOpacity: 0.2,
+            gradient: {0.0:'rgba(255,255,255,0)', 0.2:'rgba(213,209,112,0.55)', 0.4:'rgba(170,185,82,0.75)', 0.6:'rgba(125,157,58,0.9)', 0.85:'rgba(82,129,35,0.97)', 1.0:'rgba(0,45,4,1.0)'}
+        });
+
+        // ========== SIMPLIFIED KADASTR POPUP ==========
+        function pop_simplified_kadastr_6(feature, layer) {
+            var p = feature.properties;
+            var idx = parseFloat(p['provision_mean'] || p['provision_index'] || 0);
+            var cl  = idx <= 9.3 ? '#e28888' : idx <= 31.3 ? '#f4b794' : idx <= 63.2 ? '#f4d3a8' : idx <= 112.6 ? '#dfe5b9' : '#c4dc8c';
+            var norm=196, pct=Math.min(idx/norm*100,100), W=140, bw=Math.round(pct/100*W);
+            var h = '<div style="font-family:Arial,sans-serif;font-size:12px;width:220px;">'
+              + '<div style="border-bottom:3px solid '+cl+';padding-bottom:5px;margin-bottom:8px;">'
+              +   '<div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px">Кадастровый квартал</div>'
+              +   '<div style="margin-top:3px;font-size:12px">Индекс: <span style="font-weight:bold;font-size:15px;color:#333">'+idx.toFixed(1)+'</span><span style="color:#aaa;font-size:10px"> мест/1000 чел.</span></div>'
+              + '</div>'
+              + '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:#555">Обеспеченность</span><span style="font-weight:bold;color:#333">'+pct.toFixed(0)+'%</span></div>'
+              + '<div style="position:relative;height:12px;background:#eee;border-radius:3px;width:'+W+'px">'
+              +   '<div style="height:12px;width:'+bw+'px;background:'+cl+';border-radius:3px"></div>'
+              +   '<div style="position:absolute;right:0;top:-3px;width:2px;height:18px;background:#666;opacity:.4"></div>'
+              + '</div>'
+              + '<div style="font-size:10px;color:#bbb;margin-top:1px">норма: '+norm+' мест/1000 чел.</div>'
+              + '</div>';
+            layer.bindPopup(h, {maxWidth:260});
+        }
+
+        function style_simplified_kadastr_6_0(feature) {
+            var v = parseFloat(feature.properties['provision_mean'] || feature.properties['provision_index'] || 0);
+            var fillColor, strokeColor;
+            if      (v <= 9.330769)   { fillColor='rgba(226,136,136,1.0)'; strokeColor='rgba(145,87,87,1.0)'; }
+            else if (v <= 31.347368)  { fillColor='rgba(244,183,148,1.0)'; strokeColor='rgba(150,113,91,1.0)'; }
+            else if (v <= 63.175000)  { fillColor='rgba(244,211,168,1.0)'; strokeColor='rgba(149,129,103,1.0)'; }
+            else if (v <= 112.552941) { fillColor='rgba(223,229,185,1.0)'; strokeColor='rgba(149,153,124,1.0)'; }
+            else                      { fillColor='rgba(196,220,140,1.0)'; strokeColor='rgba(130,146,93,1.0)'; }
+            return { pane:'pane_simplified_kadastr_6', opacity:1, color:strokeColor, dashArray:'', lineCap:'butt', lineJoin:'miter', weight:0.8, fill:true, fillOpacity:1, fillColor:fillColor, interactive:true };
+        }
+        map.createPane('pane_simplified_kadastr_6');
+        map.getPane('pane_simplified_kadastr_6').style.zIndex = 406;
+        var layer_simplified_kadastr_6 = new L.geoJson(json_simplified_kadastr_6, {
+            attribution: '', interactive: true,
+            dataVar: 'json_simplified_kadastr_6',
+            layerName: 'layer_simplified_kadastr_6',
+            pane: 'pane_simplified_kadastr_6',
+            onEachFeature: pop_simplified_kadastr_6,
+            style: style_simplified_kadastr_6_0,
+        });
+
+        // ========== LAYER CONTROL PANEL ==========
+        function toggleLayerPanel() {
+            var b = document.getElementById('layer-body');
+            b.style.display = b.style.display === 'none' ? 'block' : 'none';
+        }
+        var layerControlDiv = L.control({position: 'topright'});
+        layerControlDiv.onAdd = function() {
+            var div = L.DomUtil.create('div', 'layer-control');
+            div.innerHTML =
+                '<div class="layer-control-header" onclick="toggleLayerPanel()">&#x2630; Слои <span style="font-size:10px;color:#aaa">&#9660;</span></div>'
+              + '<div id="layer-body">'
+              + '<div class="layer-section-title">Тепловые карты</div>'
+              + '<label class="layer-item"><input type="checkbox" id="chk-heat-schools" checked> <span class="swatch" style="background:rgba(33,113,181,0.8)"></span> Школы</label>'
+              + '<label class="layer-item"><input type="checkbox" id="chk-heat-kinder" checked> <span class="swatch" style="background:rgba(35,139,69,0.8)"></span> Детские сады</label>'
+              + '<div class="layer-section-title" style="margin-top:10px">Полигональные слои</div>'
+              + '<label class="layer-item"><input type="checkbox" id="chk-kadastr" checked> <span class="swatch" style="background:#f4d3a8;border:1px solid #aaa"></span> Кадастровые кварталы</label>'
+              + '<label class="layer-item"><input type="checkbox" id="chk-microd" checked> <span class="swatch" style="background:#c4dc8c;border:1px solid #aaa"></span> Микрорайоны</label>'
+              + '<label class="layer-item"><input type="checkbox" id="chk-district" checked> <span class="swatch" style="background:#e28888;border:1px solid #aaa"></span> Районы</label>'
+              + '</div>';
+            L.DomEvent.disableClickPropagation(div);
+            L.DomEvent.disableScrollPropagation(div);
+            return div;
+        };
+        layerControlDiv.addTo(map);
+
+        // ========== LEGEND ==========
+        var legendDiv = L.control({position: 'bottomright'});
+        legendDiv.onAdd = function() {
+            var d = L.DomUtil.create('div', 'legend-panel');
+            d.innerHTML = '<h4>Обеспеченность, мест/1000 чел.</h4>'
+              + '<div class="legend-row"><div class="legend-color" style="background:#e28888"></div>0 — 9,3</div>'
+              + '<div class="legend-row"><div class="legend-color" style="background:#f4b794"></div>9,3 — 31,3</div>'
+              + '<div class="legend-row"><div class="legend-color" style="background:#f4d3a8"></div>31,3 — 63,2</div>'
+              + '<div class="legend-row"><div class="legend-color" style="background:#dfe5b9"></div>63,2 — 112,6</div>'
+              + '<div class="legend-row"><div class="legend-color" style="background:#c4dc8c"></div>112,6 — 197</div>'
+              + '<div style="margin-top:6px;font-size:10px;color:#aaa">Норматив: 196 мест/1000 чел.</div>';
+            return d;
+        };
+        legendDiv.addTo(map);
+
+        // ========== INFO PANEL ==========
+        var infoDiv = L.control({position: 'bottomleft'});
+        infoDiv.onAdd = function() {
+            var d = L.DomUtil.create('div', 'info-panel');
+            d.innerHTML = '<h3>Доступность соц. инфраструктуры</h3>'
+              + '<p>Обеспеченность показывает, сколько мест в школах и детских садах приходится на 1000 жителей в пешеходной доступности от каждого дома. Зоны доступности рассчитаны по реальной дорожной сети: 300 м для детских садов и 500 м для школ согласно СП 42.13330.2016.</p>'
+              + '<span class="norm-badge">Норматив: 196 мест / 1000 жителей</span>';
+            return d;
+        };
+        infoDiv.addTo(map);
+
+        // ========== ZOOM INDICATOR ==========
+        var zoomInd = L.control({position: 'topleft'});
+        zoomInd.onAdd = function() {
+            this._el = L.DomUtil.create('div', 'zoom-indicator');
+            return this._el;
+        };
+        zoomInd.addTo(map);
+
+        // ========== LAYER VISIBILITY BY ZOOM ==========
+        // Toggle states
+        var visState = {schools: true, kinder: true, kadastr: true, microd: true, district: true};
+
+        function updateLayers() {
+            var z = map.getZoom();
+            // Polygon layers by zoom
+            if (visState.kadastr && z >= 13) map.addLayer(layer_simplified_kadastr_6);
+            else if (map.hasLayer(layer_simplified_kadastr_6)) map.removeLayer(layer_simplified_kadastr_6);
+
+            if (visState.microd && z >= 11 && z < 13) map.addLayer(layer_microd_joined_crs_2);
+            else if (map.hasLayer(layer_microd_joined_crs_2)) map.removeLayer(layer_microd_joined_crs_2);
+
+            if (visState.district && z < 11) map.addLayer(layer_district_joined_crs_3);
+            else if (map.hasLayer(layer_district_joined_crs_3)) map.removeLayer(layer_district_joined_crs_3);
+
+            // Heatmaps
+            if (visState.schools && z <= 13) map.addLayer(layer_shk_itog_4);
+            else if (map.hasLayer(layer_shk_itog_4)) map.removeLayer(layer_shk_itog_4);
+
+            if (visState.kinder && z <= 13) map.addLayer(layer_shk_itog1_5);
+            else if (map.hasLayer(layer_shk_itog1_5)) map.removeLayer(layer_shk_itog1_5);
+
+            // Zoom indicator
+            if (zoomInd._el) {
+                zoomInd._el.innerHTML = z >= 13 ? '&#128205; Кадастровые кварталы'
+                    : z >= 11 ? '&#128205; Микрорайоны' : '&#128205; Районы';
+            }
+
+            // Heatmap radius
+            var r = z < 11 ? 35 : z < 12 ? 25 : z < 13 ? 18 : 12;
+            var b = Math.round(r * 0.65);
+            if (map.hasLayer(layer_shk_itog_4))  layer_shk_itog_4.setOptions({radius:r, blur:b});
+            if (map.hasLayer(layer_shk_itog1_5)) layer_shk_itog1_5.setOptions({radius:r, blur:b});
+        }
+
+        map.on('zoomend', updateLayers);
+
+        // ========== CHECKBOX HANDLERS ==========
+        function setupCheckboxes() {
+            document.getElementById('chk-heat-schools').onchange = function() {
+                visState.schools = this.checked; updateLayers();
+            };
+            document.getElementById('chk-heat-kinder').onchange = function() {
+                visState.kinder = this.checked; updateLayers();
+            };
+            document.getElementById('chk-kadastr').onchange = function() {
+                visState.kadastr = this.checked; updateLayers();
+            };
+            document.getElementById('chk-microd').onchange = function() {
+                visState.microd = this.checked; updateLayers();
+            };
+            document.getElementById('chk-district').onchange = function() {
+                visState.district = this.checked; updateLayers();
+            };
+        }
+
+        // ========== INIT ==========
+        setBounds();
+        updateLayers();
+        setupCheckboxes();
+
+        resetLabels([layer_district_joined_crs_3]);
+        map.on('zoomend', function(){ resetLabels([layer_district_joined_crs_3]); });
+        map.on('layeradd', function(){ resetLabels([layer_district_joined_crs_3]); });
+        map.on('layerremove', function(){ resetLabels([layer_district_joined_crs_3]); });
+        </script>
+    </body>
+</html>
